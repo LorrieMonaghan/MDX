@@ -1,0 +1,160 @@
+WITH member [Measures].[%Change] as
+IIF
+(
+ [Date].[Weeks].Level.ordinal = 1 AND [Date].[Months].Level.Ordinal < 4, 
+
+	/*This approach deals with the scenario where a single measures has to work across two dimesions in the same hierachy.
+	The method uses the Ordinal level to identify which hierachy to use for the calculation. The reason for this is that if
+	the months hieracy is used then it assumes that levels of the weeks hierachy have an ordinal of 1 and vice versa, hence the logical
+	test at the beginning. If the weeks.level.ordinal = 1 and the Months.level.Ordinal is less then 4 then the value must be using the months hieracy
+	otherwise it is using the weeks hierachy*/
+	--IIF True		
+		CASE WHEN
+			    --This has been done as a case statement simply to differentiate from the surrounfing IIF to make it easier to read.
+			    --The case statement manages where current period value has no previous period value and returns a NULL if true
+			    (
+			        ParallelPeriod
+			            (
+			                [Date].[Months].CurrentMember.Level,
+			                1,
+			                [Date].[Months].CurrentMember
+			            ),
+			        [Measures].[Sales]
+			    ) >0
+	/*This AND clause prevents the calculation from running where there are no sales for a given week. Most likely the current week as there will be no sales yet, but 
+	there is previous week data. The result would be -100% without this*/
+				AND 
+				(
+					[Measures].[Sales] 
+				) <> NULL
+
+			THEN
+			/*Minus the current period value by the previous period value then divide by the previous period to calculate % difference*/
+						
+                (
+					(
+				        [Date].[Months].CurrentMember, [Measures].[Sales]
+					)
+				    -
+				    (
+				        ParallelPeriod
+				            (
+				                [Date].[Months].CurrentMember.Level,
+				                1,
+				                [Date].[Months].CurrentMember
+				            ),
+				        [Measures].[Sales]
+				    )
+				) 
+				/
+				    (
+				        ParallelPeriod
+				            (
+				                [Date].[Months].CurrentMember.Level,
+				                1,
+				                [Date].[Months].CurrentMember
+				            ),
+				        [Measures].[Sales]
+				    )
+
+            ELSE NULL
+			END,
+
+--IIF False
+		--The case statement manages where current period value has no previous period value and returns a NULL if true
+			CASE WHEN
+			    (
+			        ParallelPeriod
+			            (
+			                [Date].[Weeks].CurrentMember.Level,
+			                1,
+			                [Date].[Weeks].CurrentMember
+			            ),
+			        [Measures].[Sales]
+			    ) >0
+
+				AND 
+				(
+					[Measures].[Sales] 
+				) <> NULL
+
+			THEN
+			/*Minus the current period value by the previous period value then divide by the previous period to calculate % difference*/
+				(
+					    (
+				   		    [Date].[Weeks].CurrentMember, [Measures].[Sales]
+					    )
+				        -
+				        (
+				            ParallelPeriod
+				                (
+				                    [Date].[Weeks].CurrentMember.Level,
+				                    1,
+				                    [Date].[Weeks].CurrentMember
+				                ),
+				            [Measures].[Sales]
+				        )
+				) 
+				/
+				    (
+				        ParallelPeriod
+				            (
+				                [Date].[Weeks].CurrentMember.Level,
+				                1,
+				                [Date].[Weeks].CurrentMember
+				            ),
+				        [Measures].[Sales]
+				    )
+
+            ELSE NULL
+			END
+          
+),
+
+			Format_String ='Percent'
+
+MEMBER [Measures].[PreviousSales] 
+AS 
+	  (
+				        ParallelPeriod
+				            (
+				                [Date].[Months].CurrentMember.Level,
+				                1,
+				                [Date].[Months].CurrentMember
+				            ),
+				        [Measures].[Sales]
+				    ),
+
+			Format_String ='#,0.00'
+
+MEMBER [Measures].[WeeksOrdinalLevel] 
+AS 
+ (
+	[Date].[Weeks].CurrentMember.Level.ordinal
+ ),
+			Format_String ='#,0.00'
+
+MEMBER [Measures].[MonthsOrdinalLevel] 
+AS 
+ (
+	[Date].[Months].CurrentMember.Level.ordinal
+ ),
+			Format_String ='#,0.00'
+
+ Select {
+			[measures].[Sales]
+			,[Measures].[WeeksOrdinalLevel]
+			,[Measures].[MonthsOrdinalLevel]
+			,[Measures].[PreviousSales]
+			, [Measures].[%Change]
+			} on COLUMNS,
+
+	NON EMPTY((
+		Descendants(
+					[Date].[Weeks].[Year]
+					,[Date].[Weeks].[Date]
+					,self_and_before
+					)
+    )) ON ROWS
+ from [<database>]
+ 
